@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subscription Criteria</title>
+<meta name="description" content="Xuhui's personal criteria for which football matches to subscribe to and watch.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-shell">
+  <header class="site-header">
+    <a class="brand" href="#/">
+      <span class="brand-mark" aria-hidden="true">&#9917;</span>
+      <span class="brand-text">Subscription Criteria</span>
+    </a>
+    <nav class="main-nav">
+      <a href="#/all" data-nav="all">All entries</a>
+      <a href="#/domestic" data-nav="domestic">Domestic</a>
+      <a href="#/continental" data-nav="continental">Continental</a>
+      <a href="#/international" data-nav="international">International</a>
+      <a href="#/glossary" data-nav="glossary">Glossary</a>
+    </nav>
+    <div class="version-switch">
+      <label for="version-select" class="sr-only">Version</label>
+      <select id="version-select"></select>
+    </div>
+  </header>
+
+  <main id="app" class="app-main" tabindex="-1"></main>
+
+  <footer class="site-footer">
+    <span id="footer-version-note"></span>
+  </footer>
+</div>
+
+<template id="tpl-chip">
+  <span class="glossary-chip"></span>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>

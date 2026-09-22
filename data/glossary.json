@@ -1,0 +1,67 @@
+{
+  "roundCodes": {
+    "F": "Final",
+    "SF": "Semifinal",
+    "QF": "Quarterfinal",
+    "PQF": "Path Quarterfinal (Russian Cup's regional-path format)",
+    "R16": "Round of 16",
+    "RO16": "Round of 16 (used interchangeably with R16)",
+    "R32": "Round of 32",
+    "R1": "First Round",
+    "GS": "Group Stage",
+    "LAGS": "League A Group Stage (UEFA Nations League)",
+    "Q": "Qualification decider (a match that could decide qualification, e.g. to the World Cup or Euros)"
+  },
+  "coverageWords": {
+    "full": "Every match in this competition/tier is included, including qualifying rounds for continental competitions.",
+    "all": "Same as \"full\" — every match included. (Kept as a separate word in the data only because the source sheet wasn't fully consistent between the two.)",
+    "top": "Matches from the round when top-tier/big clubs enter the competition onward, any round, regardless of opponent."
+  },
+  "letterCodes": {
+    "O": {
+      "name": "Odds-based",
+      "template": "Both teams' decimal win odds are {N} or lower.",
+      "scope": "Only used for the Important tier of the Top-Tier league in the five leagues that have one (England, Spain, Germany, Italy, France), and only for the first half of the season — see the ranking methodology note."
+    },
+    "S": {
+      "name": "Combined ranking",
+      "template": "The two teams' rankings add up to {N} or less.",
+      "scope": "Domestic leagues: league standing position. International matches: FIFA world ranking. See the ranking methodology note for how \"ranking\" is determined through the season."
+    },
+    "T": {
+      "name": "Individual top-ranked team",
+      "template": "At least one of the two teams is individually ranked {N} or better — this match counts regardless of who the opponent is.",
+      "scope": "Domestic leagues: current league standing (or FIFA/individual competition ranking depending on context). International matches (T30 specifically): either team's FIFA world ranking."
+    },
+    "C": {
+      "name": "Title decider",
+      "template": "A match that could decide the competition's champion.",
+      "scope": "Used across domestic league/cup columns and one international entry (EAFF E-1 Championship)."
+    }
+  },
+  "separator": {
+    "symbol": "/",
+    "meaning": "OR — a match qualifies for a tier if it satisfies ANY of the slash-separated conditions in that cell. The same OR logic applies between the per-row rules and the global cutoffs below: if a match satisfies either, it's included."
+  },
+  "globalCutoffs": {
+    "domestic": [
+      "Combined real-time market value of both teams ≥ €500M — promotes a match to the Important tier regardless of country, competition, or round."
+    ],
+    "continental": [
+      "Combined real-time market value of both teams ≥ €300M — promotes a match to the Important tier regardless of competition or round."
+    ],
+    "international": [
+      "Combined real-time market value of both teams ≥ €300M, OR",
+      "Combined FIFA world ranking of both teams ≤ 120 (this is the same \"S\" logic as S120), OR",
+      "Either team's FIFA world ranking ≤ 30 (this is the same \"T\" logic as T30)",
+      "— any of these promotes a match to the Important tier regardless of competition or round."
+    ],
+    "note": "These global cutoffs sit outside the per-competition Important/Main/Supplementary columns in the source sheet, so which exact tier they promote to is Claude's best reading of the intent (Important, the top tier) rather than something explicitly labelled — worth Xuhui double-checking."
+  },
+  "rankingMethodology": [
+    "Matchdays 1–7 of a league season: use the previous season's final standings. (Doesn't apply to leagues without a stable prior-season basis, such as the EFL Championship, where promoted/relegated teams make last season's table not meaningfully comparable.)",
+    "Matchday 8 onward: use real-time, current-season standings.",
+    "For leagues with more than two round-robins in a season (e.g. leagues that split into championship/relegation groups): only the standings from the last two round-robins are used.",
+    "For Important-tier qualification specifically: only the final round-robin's standings are used for the ranking (S) rule. Before that point in the season, the odds-based (O) rule is used instead for the Important tier — this only affects the five leagues with an Important-tier column at all (England, Spain, Germany, Italy, France)."
+  ]
+}

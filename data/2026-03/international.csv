@@ -1,0 +1,37 @@
+competition,confederation,rank,important,main,supplementary
+FIFA World Cup,FIFA,1,R32,GS,
+UEFA European Championship,UEFA,2,R16,GS,
+CONMEBOL Copa América,CONMEBOL,3,QF,GS,
+AFC Asian Cup,AFC,4,SF,GS,
+CAF Africa Cup of Nations,CAF,5,SF,GS,
+CONCACAF Gold Cup,CONCACAF,6,SF,GS,
+OFC Men's Nations Cup,OFC,7,,SF,full
+Finalissima,UEFA-CONMEBOL,8,F,,
+UEFA Nations League,UEFA,9,SF,LAGS,full
+CONCACAF Nations League,CONCACAF,10,F,QF,full
+FIFA Arab Cup,FIFA,11,,SF,full
+FIFA World Cup Qualification - UEFA,UEFA,12,,Q,full
+FIFA World Cup Qualification - CONMEBOL,CONMEBOL,13,,Q,full
+FIFA World Cup Qualification - AFC,AFC,14,,Q,full
+FIFA World Cup Qualification - CAF,CAF,15,,Q,full
+FIFA World Cup Qualification - CONCACAF,CONCACAF,16,,Q,full
+FIFA World Cup Qualification - OFC,OFC,17,,Q,full
+FIFA World Cup Qualification - Play-offs,FIFA,18,,Q,full
+UEFA European Championship Qualification,UEFA,19,,Q,full
+AFC Asian Cup Qualification,AFC,20,,,full
+CAF Africa Cup of Nations Qualification,CAF,21,,,full
+OFC Men's Nations Cup Qualification,OFC,22,,,full
+FIFA Arab Cup Qualification,FIFA,23,,,full
+African Nations Championship,CAF,24,,F,full
+EAFF E-1 Football Championship,EAFF,25,,C,full
+ASEAN Championship,AFF,26,,F,full
+SAFF Championship,SAFF,27,,F,full
+CAFA Nations Cup,CAFA,28,,F,full
+WAFF Championship,WAFF,29,,F,full
+Arabian Gulf Cup,AGCFF,30,,F,full
+COSAFA Cup,COSAFA,31,,F,full
+International Friendly,FIFA,32,,,full
+Olympic Games,IOC-FIFA,33,,QF,full
+UEFA European U-21 Championship,UEFA,34,,SF,full
+CONMEBOL Preolímpico,CONMEBOL,35,,C,full
+FIFA U-20 World Cup,FIFA,36,,F,full
