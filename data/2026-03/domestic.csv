@@ -1,5 +1,5 @@
 country,confederation,teams,total_market_value,average_market_value,top_tier_important,top_tier_main,top_tier_supplementary,second_tier_important,second_tier_main,second_tier_supplementary,main_cup_important,main_cup_main,main_cup_supplementary,league_cup_important,league_cup_main,league_cup_supplementary,super_cup_important,super_cup_main,super_cup_supplementary,state_championship_important,state_championship_main,state_championship_supplementary
-England,UEFA,20,12570.98,628.549,O10 / S6 / C,S10 / T3 / C,full,,S4 / C,all,F,QF,top,F,QF,top,F,,,,,
+England,UEFA,20,12570.98,628.549,O10 / S6 / C,S10 / T3 / C,full,,S4 / C,full,F,QF,top,F,QF,top,F,,,,,
 Spain,UEFA,20,5609.78,280.489,O10 / S5 / C,S10 / T3 / C,full,,C,,F,QF,top,,,,F,SF,,,,
 Germany,UEFA,18,4819.46,267.7478,O10 / S5 / C,S10 / T3 / C,full,,C,,F,QF,top,,,,F,,,,,
 Italy,UEFA,20,5236.91,261.8455,O10 / S5 / C,S10 / T3 / C,full,,C,,F,QF,top,,,,F,SF,,,,

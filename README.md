@@ -25,8 +25,8 @@ data/
 ## Adding a new snapshot (e.g. September 2026)
 
 1. Convert the updated spreadsheet into the same three-CSV shape as `data/2026-03/` — same column
-   headers, same shorthand codes (`O10`, `S6`, `T3`, `C`, round codes, `full`/`all`/`top`, `/`-separated
-   for OR). Put them in a new folder, e.g. `data/2026-09/`.
+   headers, same shorthand codes (`O10`, `S6`, `T3`, `C`, round codes like `F`/`QF`/`R16`, `full`/`top`,
+   `/`-separated for OR). The site translates these into plain language — the codes only live in the CSVs. Put them in a new folder, e.g. `data/2026-09/`.
 2. Add an entry to `data/versions.json`:
    ```json
    { "id": "2026-09", "label": "September 2026", "status": "current" }
@@ -34,7 +34,8 @@ data/
    and change the old entry's `"status"` from `"current"` to something else (e.g. remove the key, or
    set `"status": "archived"` — the app only checks for the literal value `"current"`).
 3. If any new shorthand codes are introduced, add them to `data/glossary.json` (`letterCodes`,
-   `roundCodes`, or `coverageWords`) so the site can explain them.
+   `roundCodes`, or `coverageWords`) with a `short` label (shown on the pill) and a longer meaning.
+   Unknown codes still display, just as the raw code.
 4. Commit and push — GitHub Pages picks it up automatically, nothing to rebuild.
 
 The version dropdown in the header will then show both snapshots; switching versions reloads the
@@ -51,7 +52,6 @@ This is a static site — no build step. Push this folder to a GitHub repo and e
   `data/history/` only carries market-value figures reconstructed from differently-formatted older
   files (2024–2025), used for the small trend charts on country/competition pages. There's no
   historical criteria data before March 2026.
-- One assumption worth double-checking: the global market-value/ranking cutoffs (e.g. "combined MV
-  ≥ €500M") sit outside the per-competition columns in the source sheet, so the site treats them as
-  promoting a match to the **Important** tier. That's a best guess, not something explicitly labelled
-  in the sheet — see the note on the Glossary page.
+- Competition names in the continental history were aligned to the current names (e.g. Copa Libertadores →
+  CONMEBOL Libertadores, AFC Cup → AFC Champions League Two) so their trend charts line up.
+- The global cutoffs are shown as a separate route in ("Also counts if"), not tied to a specific tier.

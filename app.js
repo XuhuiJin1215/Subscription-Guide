@@ -1,614 +1,503 @@
-/* Subscription Criteria site
- * Vanilla JS, hash-routed, CSV/JSON data loaded via fetch. No build step, no dependencies.
- */
+/* Subscription Criteria — vanilla JS, hash-routed, reads CSV/JSON from /data. No build step. */
 (function () {
   'use strict';
 
-  var state = {
-    version: null,
-    versions: [],
-    glossary: null,
-    domestic: [],
-    continental: [],
-    international: [],
-    domesticHistory: [],
-    continentalHistory: [],
-    searchIndex: []
+  var S = {
+    versions: [], version: null, g: null,
+    domestic: [], continental: [], international: [],
+    domHist: [], contHist: [],
+    index: [],
+    list: {} // remembered filter/sort per section
   };
 
-  // ---------------------------------------------------------------------
-  // CSV parsing (handles quoted fields, embedded commas/newlines/quotes)
-  // ---------------------------------------------------------------------
+  /* ---------------- CSV ---------------- */
   function parseCSV(text) {
-    var rows = [];
-    var row = [];
-    var field = '';
-    var inQuotes = false;
-    var i = 0;
-    var n = text.length;
-    while (i < n) {
+    var rows = [], row = [], f = '', q = false;
+    for (var i = 0; i < text.length; i++) {
       var c = text[i];
-      if (inQuotes) {
-        if (c === '"') {
-          if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
-          inQuotes = false; i++; continue;
-        }
-        field += c; i++; continue;
-      } else {
-        if (c === '"') { inQuotes = true; i++; continue; }
-        if (c === ',') { row.push(field); field = ''; i++; continue; }
-        if (c === '\r') { i++; continue; }
-        if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; i++; continue; }
-        field += c; i++; continue;
-      }
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; }
+        else f += c;
+      } else if (c === '"') q = true;
+      else if (c === ',') { row.push(f); f = ''; }
+      else if (c === '\n') { row.push(f); rows.push(row); row = []; f = ''; }
+      else if (c !== '\r') f += c;
     }
-    if (field.length || row.length) { row.push(field); rows.push(row); }
-    if (rows.length && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === '') rows.pop();
-    return rows;
+    if (f || row.length) { row.push(f); rows.push(row); }
+    var h = rows.shift() || [];
+    return rows.filter(function (r) { return r.join('').trim(); }).map(function (r) {
+      var o = {}; h.forEach(function (k, j) { o[k] = (r[j] || '').trim(); }); return o;
+    });
   }
+  function get(p, json) {
+    return fetch(p).then(function (r) { if (!r.ok) throw new Error(p); return json ? r.json() : r.text(); });
+  }
+  function csv(p) { return get(p).then(parseCSV); }
 
-  function csvToObjects(text) {
-    var rows = parseCSV(text);
-    if (!rows.length) return [];
-    var headers = rows[0];
-    var out = [];
-    for (var r = 1; r < rows.length; r++) {
-      var row = rows[r];
-      if (!row.length || (row.length === 1 && row[0] === '')) continue;
-      var obj = {};
-      for (var c = 0; c < headers.length; c++) obj[headers[c]] = row[c] !== undefined ? row[c] : '';
-      out.push(obj);
+  /* ---------------- helpers ---------------- */
+  function slug(s) { return String(s).toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function num(v) { var n = parseFloat(v); return isNaN(n) ? null : n; }
+  function money(v) {
+    var n = num(v); if (n === null) return '—';
+    if (n >= 1000) return '€' + (n / 1000).toFixed(n >= 10000 ? 1 : 2) + 'bn';
+    if (n >= 100) return '€' + Math.round(n) + 'M';
+    if (n >= 10) return '€' + n.toFixed(1) + 'M';
+    return '€' + n.toFixed(2) + 'M';
+  }
+  function snapLabel(id) {
+    var m = String(id).match(/^(\d{4})-(\d{2})$/);
+    if (!m) return id;
+    return (m[2] === '03' ? 'Mar' : m[2] === '09' ? 'Sep' : m[2]) + ' ' + m[1].slice(2);
+  }
+  function versionLabel(id) { var v = S.versions.find(function (x) { return x.id === id; }); return v ? v.label : id; }
+
+  /* ---------------- plain-language conditions ---------------- */
+  function describe(tok) {
+    var g = S.g, t = tok.trim();
+    if (g.coverageWords[t]) return { short: g.coverageWords[t].short, long: g.coverageWords[t].long, kind: 'all' };
+    if (g.roundCodes[t]) return { short: g.roundCodes[t].short, long: g.roundCodes[t].name, kind: 'round' };
+    if (t === 'C') return { short: g.letterCodes.C.short, long: g.letterCodes.C.long, kind: 'rule' };
+    var m = t.match(/^([A-Z])(\d+)$/);
+    if (m && g.letterCodes[m[1]]) {
+      var d = g.letterCodes[m[1]];
+      return { short: d.short.replace('{N}', m[2]), long: d.long.replace('{N}', m[2]), kind: 'rule' };
     }
-    return out;
+    return { short: t, long: 'Custom note from the source sheet.', kind: 'rule' };
+  }
+  function pills(str, small) {
+    if (!str || !str.trim()) return '<span class="none">—</span>';
+    var parts = str.split('/').map(function (s) { return s.trim(); }).filter(Boolean);
+    return '<div class="pills">' + parts.map(function (p, i) {
+      var d = describe(p);
+      return (i ? '<span class="or-sep">or</span>' : '') +
+        '<span class="pill ' + d.kind + (small ? ' sm' : '') + '" title="' + esc(d.long + '  [' + p + ']') + '">' + esc(d.short) + '</span>';
+    }).join('') + '</div>';
+  }
+  function ladder(imp, main, supp) {
+    return '<div class="ladder">' + [['important', 'Important', imp], ['main', 'Main', main], ['supplementary', 'Supplementary', supp]].map(function (t) {
+      var empty = !t[2] || !t[2].trim();
+      return '<div class="rung' + (empty ? ' empty' : '') + '"><span class="tier ' + t[0] + '">' + t[1] + '</span>' +
+        (empty ? '<span class="none">Not included</span>' : pills(t[2])) + '</div>';
+    }).join('') + '</div>';
   }
 
-  function fetchText(path) {
-    return fetch(path).then(function (r) {
-      if (!r.ok) throw new Error('Failed to load ' + path);
-      return r.text();
-    });
-  }
-  function fetchJSON(path) {
-    return fetch(path).then(function (r) {
-      if (!r.ok) throw new Error('Failed to load ' + path);
-      return r.json();
-    });
-  }
-  function fetchCSV(path) {
-    return fetchText(path).then(csvToObjects);
-  }
-
-  // ---------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------
-  function slugify(s) {
-    return String(s).toLowerCase()
-      .replace(/&/g, ' and ')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-  }
-
-  function esc(s) {
-    if (s === null || s === undefined) return '';
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
-
-  function fmtMV(v) {
-    if (v === '' || v === null || v === undefined || isNaN(parseFloat(v))) return '';
-    var n = parseFloat(v);
-    return '€' + n.toLocaleString('en-US', { maximumFractionDigits: 1 }) + 'M';
-  }
-
-  function el(html) {
-    var d = document.createElement('div');
-    d.innerHTML = html.trim();
-    return d.firstChild;
-  }
-
-  // ---------------------------------------------------------------------
-  // Glossary-aware code rendering
-  // ---------------------------------------------------------------------
-  function describeToken(token) {
-    token = token.trim();
-    if (!token) return null;
-    var g = state.glossary;
-    if (g.roundCodes[token]) return g.roundCodes[token];
-    if (g.coverageWords[token]) return g.coverageWords[token];
-    if (token === 'C') return g.letterCodes.C.template;
-    var m = token.match(/^([A-Za-z]+)(\d+)$/);
-    if (m) {
-      var letter = m[1], num = m[2];
-      var def = g.letterCodes[letter];
-      if (def) return def.template.replace('{N}', num) + (def.scope ? ' (' + def.scope + ')' : '');
+  /* ---------------- sections config ---------------- */
+  var SECTIONS = {
+    domestic: {
+      title: 'Domestic', data: function () { return S.domestic; }, nameKey: 'country',
+      lede: 'One row per country, ranked by average club market value. The conditions shown are for the top-tier league — open a country for its second tier and cups.',
+      defaultSort: { key: 'avg', dir: -1 }
+    },
+    continental: {
+      title: 'Continental', data: function () { return S.continental; }, nameKey: 'competition',
+      lede: 'Club competitions across borders, in priority order.',
+      defaultSort: { key: 'rank', dir: 1 }
+    },
+    international: {
+      title: 'International', data: function () { return S.international; }, nameKey: 'competition',
+      lede: 'National-team competitions, in priority order.',
+      defaultSort: { key: 'rank', dir: 1 }
     }
-    return 'Custom note — see the source sheet.';
+  };
+  function nameOf(sec, r) { return r[SECTIONS[sec].nameKey]; }
+  function listState(sec) {
+    if (!S.list[sec]) S.list[sec] = { q: '', confed: '', sort: Object.assign({}, SECTIONS[sec].defaultSort) };
+    return S.list[sec];
   }
-
-  function renderCode(codeStr) {
-    if (!codeStr || !codeStr.trim()) return '<span class="none">not tracked</span>';
-    var parts = codeStr.split('/').map(function (s) { return s.trim(); }).filter(Boolean);
-    return parts.map(function (p, idx) {
-      var desc = describeToken(p);
-      var chip = '<span class="glossary-chip" tabindex="0"><code>' + esc(p) + '</code>' +
-        (desc ? '<span class="tip">' + esc(desc) + '</span>' : '') + '</span>';
-      return chip;
-    }).join('<span class="slash-sep">/</span>');
+  function sortVal(sec, r, key) {
+    if (key === 'name') return nameOf(sec, r).toLowerCase();
+    if (key === 'confed') return r.confederation.toLowerCase();
+    if (key === 'avg') return num(r.average_market_value) || 0;
+    if (key === 'total') return num(r.total_market_value) || 0;
+    if (key === 'teams') return num(r.teams) || 0;
+    if (key === 'rank') return num(r.rank) || 0;
+    if (key === 'mvrank') return r._mvRank;
+    return '';
   }
-
-  function tierRow(label, cls, value) {
-    return '<div class="tier-row">' +
-      '<div><span class="tier-badge ' + cls + '">' + label + '</span></div>' +
-      '<div class="tier-value">' + renderCode(value) + '</div>' +
-      '</div>';
-  }
-
-  // ---------------------------------------------------------------------
-  // Router
-  // ---------------------------------------------------------------------
-  var routes = [];
-  function route(pattern, handler) {
-    var paramNames = [];
-    var regex = new RegExp('^' + pattern.replace(/:[^\/]+/g, function (m) {
-      paramNames.push(m.slice(1));
-      return '([^/]+)';
-    }) + '$');
-    routes.push({ regex: regex, paramNames: paramNames, handler: handler });
-  }
-
-  function dispatch() {
-    var hash = location.hash.replace(/^#/, '') || '/';
-    var path = hash.split('?')[0];
-    if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
-    document.querySelectorAll('.main-nav a').forEach(function (a) { a.classList.remove('active'); });
-    var app = document.getElementById('app');
-    for (var i = 0; i < routes.length; i++) {
-      var m = routes[i].regex.exec(path);
-      if (m) {
-        var params = {};
-        routes[i].paramNames.forEach(function (name, idx) { params[name] = decodeURIComponent(m[idx + 1]); });
-        try {
-          routes[i].handler(params, app);
-        } catch (e) {
-          console.error(e);
-          app.innerHTML = '<p class="empty-note">Something went wrong rendering this page.</p>';
-        }
-        window.scrollTo(0, 0);
-        highlightNav(path);
-        return;
-      }
-    }
-    app.innerHTML = '<h1 class="page-title">Not found</h1><p class="page-lede">That page doesn\'t exist. <a href="#/">Go home</a>.</p>';
-  }
-
-  function highlightNav(path) {
-    var section = path.split('/')[1] || '';
-    var map = { '': null, all: 'all', domestic: 'domestic', continental: 'continental', international: 'international', glossary: 'glossary' };
-    var key = map[section];
-    if (key) {
-      var a = document.querySelector('.main-nav a[data-nav="' + key + '"]');
-      if (a) a.classList.add('active');
-    }
-  }
-
-  // ---------------------------------------------------------------------
-  // Combined search index
-  // ---------------------------------------------------------------------
-  function buildSearchIndex() {
-    var idx = [];
-    state.domestic.forEach(function (r) {
-      idx.push({ type: 'Domestic', label: r.country, slug: slugify(r.country), path: '#/domestic/' + slugify(r.country) });
+  function visibleRows(sec) {
+    var st = listState(sec), q = st.q.trim().toLowerCase();
+    var rows = SECTIONS[sec].data().filter(function (r) {
+      if (st.confed && r.confederation !== st.confed) return false;
+      if (q && nameOf(sec, r).toLowerCase().indexOf(q) === -1) return false;
+      return true;
     });
-    state.continental.forEach(function (r) {
-      idx.push({ type: 'Continental', label: r.competition, slug: slugify(r.competition), path: '#/continental/' + slugify(r.competition) });
+    var k = st.sort.key, d = st.sort.dir;
+    return rows.slice().sort(function (a, b) {
+      var x = sortVal(sec, a, k), y = sortVal(sec, b, k);
+      return x < y ? -d : x > y ? d : 0;
     });
-    state.international.forEach(function (r) {
-      idx.push({ type: 'International', label: r.competition, slug: slugify(r.competition), path: '#/international/' + slugify(r.competition) });
-    });
-    state.searchIndex = idx;
   }
 
-  function searchEntries(q) {
-    q = q.trim().toLowerCase();
-    if (!q) return [];
-    return state.searchIndex.filter(function (e) { return e.label.toLowerCase().indexOf(q) !== -1; }).slice(0, 20);
-  }
+  /* ---------------- list pages ---------------- */
+  function pageList(sec, app) {
+    var cfg = SECTIONS[sec], st = listState(sec), rows = cfg.data();
+    var confeds = {};
+    rows.forEach(function (r) { confeds[r.confederation] = (confeds[r.confederation] || 0) + 1; });
+    var confedList = Object.keys(confeds).sort(function (a, b) { return confeds[b] - confeds[a] || a.localeCompare(b); });
 
-  // ---------------------------------------------------------------------
-  // Pages
-  // ---------------------------------------------------------------------
-  function pageHome(params, app) {
-    var g = state.glossary;
+    var cols = sec === 'domestic'
+      ? [['mvrank', '#', ''], ['name', 'Country', ''], ['teams', 'Clubs', 'r hide-sm'], ['avg', 'Avg MV / club', 'r'], ['total', 'Total MV', 'r hide-sm'], [null, 'Important', 'hide-sm'], [null, 'Main', 'hide-sm']]
+      : [['rank', '#', ''], ['name', 'Competition', ''], [null, 'Important', ''], [null, 'Main', 'hide-sm'], [null, 'Supplementary', 'hide-sm']];
+
     app.innerHTML =
-      '<h1 class="page-title">Subscription Criteria</h1>' +
-      '<p class="page-lede">Personal reference for which football matches are worth subscribing to / watching, updated twice a year (March &amp; September). Search any country or competition, or browse by type below.</p>' +
-      '<div class="hero-search">' +
-      '<input type="search" id="home-search" placeholder="Search a country or competition…" autocomplete="off">' +
-      '<div class="search-results" id="home-search-results"></div>' +
-      '</div>' +
-      '<div class="nav-cards">' +
-      '<a class="nav-card" href="#/domestic"><div class="n">' + state.domestic.length + '</div><div class="l">Domestic countries</div></a>' +
-      '<a class="nav-card" href="#/continental"><div class="n">' + state.continental.length + '</div><div class="l">Continental competitions</div></a>' +
-      '<a class="nav-card" href="#/international"><div class="n">' + state.international.length + '</div><div class="l">International competitions</div></a>' +
-      '<a class="nav-card" href="#/all"><div class="n">All</div><div class="l">Browse the full master list</div></a>' +
-      '</div>' +
-      '<h2 class="section-title">Global cutoffs (apply on top of everything below)</h2>' +
-      '<div class="rules-grid">' +
-      rulesCard('Domestic', g.globalCutoffs.domestic) +
-      rulesCard('Continental', g.globalCutoffs.continental) +
-      rulesCard('International', g.globalCutoffs.international) +
-      '</div>' +
-      '<p class="empty-note">' + esc(g.globalCutoffs.note) + ' See the <a href="#/glossary">glossary</a> for the full code reference and ranking methodology.</p>';
+      '<div class="eyebrow">' + esc(versionLabel(S.version)) + '</div>' +
+      '<h1 class="page-title">' + cfg.title + '</h1>' +
+      '<p class="page-lede">' + esc(cfg.lede) + '</p>' +
+      '<div class="toolbar"><input type="search" id="q" placeholder="Filter by name…" value="' + esc(st.q) + '">' +
+      '<div class="chips" id="confeds">' +
+      '<button class="chip" data-c="" aria-pressed="' + (!st.confed) + '">All</button>' +
+      confedList.map(function (c) { return '<button class="chip" data-c="' + esc(c) + '" aria-pressed="' + (st.confed === c) + '">' + esc(c) + '</button>'; }).join('') +
+      '</div></div>' +
+      '<p class="count-line" id="count"></p>' +
+      '<div class="table-card"><div class="table-scroll"><table class="data"><thead><tr>' +
+      cols.map(function (c) {
+        return '<th class="' + c[2] + (c[0] ? ' sortable' : '') + '"' + (c[0] ? ' data-k="' + c[0] + '"' : '') + '>' + c[1] + (c[0] ? '<span class="arrow"></span>' : '') + '</th>';
+      }).join('') +
+      '</tr></thead><tbody id="tb"></tbody></table></div></div>';
 
-    var input = document.getElementById('home-search');
-    var results = document.getElementById('home-search-results');
-    input.addEventListener('input', function () {
-      var matches = searchEntries(input.value);
-      if (!input.value.trim()) { results.classList.remove('open'); results.innerHTML = ''; return; }
-      if (!matches.length) {
-        results.innerHTML = '<div class="search-empty">No matches.</div>';
-      } else {
-        results.innerHTML = matches.map(function (m) {
-          return '<a href="' + m.path + '">' + esc(m.label) + '<span class="type-tag">' + m.type + '</span></a>';
-        }).join('');
-      }
-      results.classList.add('open');
-    });
-    document.addEventListener('click', function (e) {
-      if (!results.contains(e.target) && e.target !== input) results.classList.remove('open');
-    });
-  }
-
-  function rulesCard(title, lines) {
-    return '<div class="rules-panel"><h3>' + esc(title) + '</h3><ul>' +
-      lines.map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') +
-      '</ul></div>';
-  }
-
-  function summarizeTierPair(important, main) {
-    var imp = important && important.trim() ? renderCode(important) : '<span class="tier-dash">—</span>';
-    var mn = main && main.trim() ? renderCode(main) : '<span class="tier-dash">—</span>';
-    return '<div class="tier-code"><strong>I:</strong> ' + imp + '</div><div class="tier-code"><strong>M:</strong> ' + mn + '</div>';
-  }
-
-  function pageAll(params, app) {
-    var combined = [];
-    state.domestic.forEach(function (r) {
-      combined.push({
-        type: 'Domestic', name: r.country, confed: r.confederation,
-        important: r.top_tier_important, main: r.top_tier_main,
-        mv: r.average_market_value, link: '#/domestic/' + slugify(r.country)
-      });
-    });
-    state.continental.forEach(function (r) {
-      combined.push({
-        type: 'Continental', name: r.competition, confed: r.confederation,
-        important: r.important, main: r.main,
-        mv: '', link: '#/continental/' + slugify(r.competition)
-      });
-    });
-    state.international.forEach(function (r) {
-      combined.push({
-        type: 'International', name: r.competition, confed: r.confederation,
-        important: r.important, main: r.main,
-        mv: '', link: '#/international/' + slugify(r.competition)
-      });
-    });
-    renderMasterTable(app, 'All entries', 'Every country and competition across the three sheets, in one place.', combined, true);
-  }
-
-  function pageDomesticList(params, app) {
-    var rows = state.domestic.map(function (r) {
-      return {
-        type: 'Domestic', name: r.country, confed: r.confederation,
-        important: r.top_tier_important, main: r.top_tier_main,
-        mv: r.average_market_value, link: '#/domestic/' + slugify(r.country)
-      };
-    });
-    renderMasterTable(app, 'Domestic', 'One row per country. Important / Main columns show the Top-Tier league rule — open a country for the full breakdown (second tier, cups, etc).', rows, false);
-  }
-
-  function pageContinentalList(params, app) {
-    var rows = state.continental.map(function (r) {
-      return {
-        type: 'Continental', name: r.competition, confed: r.confederation,
-        important: r.important, main: r.main, mv: '', link: '#/continental/' + slugify(r.competition)
-      };
-    });
-    renderMasterTable(app, 'Continental', 'Club competitions between teams from different domestic leagues.', rows, false);
-  }
-
-  function pageInternationalList(params, app) {
-    var rows = state.international.map(function (r) {
-      return {
-        type: 'International', name: r.competition, confed: r.confederation,
-        important: r.important, main: r.main, mv: '', link: '#/international/' + slugify(r.competition)
-      };
-    });
-    renderMasterTable(app, 'International', 'National-team competitions.', rows, false);
-  }
-
-  function renderMasterTable(app, title, lede, rows, showType) {
-    var wrap = el(
-      '<div>' +
-      '<h1 class="page-title">' + esc(title) + '</h1>' +
-      '<p class="page-lede">' + esc(lede) + '</p>' +
-      '<div class="table-toolbar">' +
-      '<input type="search" id="filter-input" placeholder="Filter by name…">' +
-      (showType ? '<select id="type-filter"><option value="">All types</option><option value="Domestic">Domestic</option><option value="Continental">Continental</option><option value="International">International</option></select>' : '') +
-      '</div>' +
-      '<div class="result-count" id="result-count"></div>' +
-      '<div class="table-scroll"><table class="data-table"><thead><tr>' +
-      (showType ? '<th data-key="type">Type</th>' : '') +
-      '<th data-key="name">Name</th>' +
-      '<th data-key="confed">Confederation</th>' +
-      '<th>Important</th><th>Main</th>' +
-      '</tr></thead><tbody id="table-body"></tbody></table></div>' +
-      '</div>'
-    );
-    app.innerHTML = '';
-    app.appendChild(wrap);
-
-    var filterInput = document.getElementById('filter-input');
-    var typeFilter = document.getElementById('type-filter');
-    var tbody = document.getElementById('table-body');
-    var countEl = document.getElementById('result-count');
-    var sortKey = 'name', sortDir = 1;
+    var maxAvg = Math.max.apply(null, S.domestic.map(function (r) { return num(r.average_market_value) || 0; }));
 
     function draw() {
-      var q = filterInput.value.trim().toLowerCase();
-      var t = typeFilter ? typeFilter.value : '';
-      var filtered = rows.filter(function (r) {
-        if (t && r.type !== t) return false;
-        if (q && r.name.toLowerCase().indexOf(q) === -1) return false;
-        return true;
+      var vis = visibleRows(sec);
+      document.getElementById('count').textContent = vis.length + ' of ' + rows.length + (sec === 'domestic' ? ' countries' : ' competitions');
+      app.querySelectorAll('th.sortable').forEach(function (th) {
+        var on = th.getAttribute('data-k') === st.sort.key;
+        th.classList.toggle('sorted', on);
+        th.querySelector('.arrow').textContent = on ? (st.sort.dir === 1 ? '↑' : '↓') : '';
       });
-      filtered.sort(function (a, b) {
-        var av = (a[sortKey] || '').toString().toLowerCase();
-        var bv = (b[sortKey] || '').toString().toLowerCase();
-        if (av < bv) return -1 * sortDir;
-        if (av > bv) return 1 * sortDir;
-        return 0;
-      });
-      countEl.textContent = filtered.length + (filtered.length === 1 ? ' entry' : ' entries');
-      tbody.innerHTML = filtered.map(function (r) {
-        return '<tr>' +
-          (showType ? '<td><span class="type-pill">' + esc(r.type) + '</span></td>' : '') +
-          '<td><a class="row-link" href="' + r.link + '">' + esc(r.name) + '</a></td>' +
-          '<td>' + esc(r.confed || '') + '</td>' +
-          '<td>' + (r.important && r.important.trim() ? renderCode(r.important) : '<span class="tier-dash">—</span>') + '</td>' +
-          '<td>' + (r.main && r.main.trim() ? renderCode(r.main) : '<span class="tier-dash">—</span>') + '</td>' +
-          '</tr>';
-      }).join('');
+      document.getElementById('tb').innerHTML = vis.map(function (r) {
+        var href = '#/' + sec + '/' + slug(nameOf(sec, r));
+        if (sec === 'domestic') {
+          var avg = num(r.average_market_value) || 0;
+          var w = maxAvg ? Math.max(2, Math.sqrt(avg / maxAvg) * 100) : 0;
+          return '<tr data-href="' + href + '">' +
+            '<td class="rank">' + r._mvRank + '</td>' +
+            '<td class="name"><a href="' + href + '">' + esc(r.country) + '</a><span class="confed">' + esc(r.confederation) + '</span></td>' +
+            '<td class="r num hide-sm">' + esc(r.teams) + '</td>' +
+            '<td class="r"><div class="mv-cell"><div class="mv-bar"><span style="width:' + w.toFixed(1) + '%"></span></div><span class="val">' + money(r.average_market_value) + '</span></div></td>' +
+            '<td class="r num hide-sm">' + money(r.total_market_value) + '</td>' +
+            '<td class="cond hide-sm">' + pills(r.top_tier_important, true) + '</td>' +
+            '<td class="cond hide-sm">' + pills(r.top_tier_main, true) + '</td></tr>';
+        }
+        return '<tr data-href="' + href + '">' +
+          '<td class="rank">' + esc(r.rank) + '</td>' +
+          '<td class="name"><a href="' + href + '">' + esc(r.competition) + '</a><span class="confed">' + esc(r.confederation) + '</span></td>' +
+          '<td class="cond">' + pills(r.important, true) + '</td>' +
+          '<td class="cond hide-sm">' + pills(r.main, true) + '</td>' +
+          '<td class="cond hide-sm">' + pills(r.supplementary, true) + '</td></tr>';
+      }).join('') || '<tr><td colspan="7" class="empty-note">Nothing matches that filter.</td></tr>';
     }
 
-    filterInput.addEventListener('input', draw);
-    if (typeFilter) typeFilter.addEventListener('change', draw);
-    wrap.querySelectorAll('th[data-key]').forEach(function (th) {
+    document.getElementById('q').addEventListener('input', function (e) { st.q = e.target.value; draw(); });
+    document.getElementById('confeds').addEventListener('click', function (e) {
+      var b = e.target.closest('.chip'); if (!b) return;
+      st.confed = b.getAttribute('data-c');
+      this.querySelectorAll('.chip').forEach(function (c) { c.setAttribute('aria-pressed', c === b); });
+      draw();
+    });
+    app.querySelectorAll('th.sortable').forEach(function (th) {
       th.addEventListener('click', function () {
-        var key = th.getAttribute('data-key');
-        if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = 1; }
+        var k = th.getAttribute('data-k');
+        if (st.sort.key === k) st.sort.dir *= -1;
+        else st.sort = { key: k, dir: (k === 'name' || k === 'rank' || k === 'mvrank' || k === 'confed') ? 1 : -1 };
         draw();
       });
+    });
+    document.getElementById('tb').addEventListener('click', function (e) {
+      if (e.target.closest('a')) return;
+      var tr = e.target.closest('tr[data-href]'); if (tr) location.hash = tr.getAttribute('data-href');
     });
     draw();
   }
 
-  // ---- Detail pages ----
-  function pageDomesticDetail(params, app) {
-    var row = state.domestic.find(function (r) { return slugify(r.country) === params.slug; });
-    if (!row) { app.innerHTML = notFoundBlock('domestic'); return; }
-    var html = '<div class="breadcrumb"><a href="#/domestic">Domestic</a> / ' + esc(row.country) + '</div>';
-    html += '<div class="detail-header"><h1>' + esc(row.country) + '</h1></div>';
-    html += '<div class="detail-meta">' +
-      '<span><strong>' + esc(row.confederation) + '</strong></span>' +
-      '<span><strong>' + esc(row.teams) + '</strong> top-tier clubs</span>' +
-      '<span>Total MV <strong>' + esc(fmtMV(row.total_market_value)) + '</strong></span>' +
-      '<span>Average MV <strong>' + esc(fmtMV(row.average_market_value)) + '</strong></span>' +
-      '</div>';
-
-    var comps = [
-      ['League (Top Tier)', 'top_tier'],
-      ['League (Second Tier)', 'second_tier'],
-      ['Main Cup', 'main_cup'],
-      ['League Cup', 'league_cup'],
-      ['Super Cup', 'super_cup'],
-      ['State Championship', 'state_championship']
-    ];
-    comps.forEach(function (c) {
-      var imp = row[c[1] + '_important'], main = row[c[1] + '_main'], supp = row[c[1] + '_supplementary'];
-      if (!imp && !main && !supp) return; // not applicable to this country
-      html += '<div class="comp-card"><h2>' + c[0] + '</h2>' +
-        tierRow('Important', 'important', imp) +
-        tierRow('Main', 'main', main) +
-        tierRow('Supplementary', 'supplementary', supp) +
-        '</div>';
-    });
-
-    var histBlock = historyBlockDomestic(row.country);
-    if (histBlock) html += histBlock;
-
-    app.innerHTML = html;
+  /* ---------------- detail pages ---------------- */
+  function pager(sec, name) {
+    var vis = visibleRows(sec), i = vis.findIndex(function (r) { return nameOf(sec, r) === name; });
+    if (i === -1) return '';
+    var prev = vis[i - 1], next = vis[i + 1];
+    return '<span class="pager">' +
+      (prev ? '<a href="#/' + sec + '/' + slug(nameOf(sec, prev)) + '">← ' + esc(nameOf(sec, prev)) + '</a>' : '') +
+      (next ? '<a href="#/' + sec + '/' + slug(nameOf(sec, next)) + '">' + esc(nameOf(sec, next)) + ' →</a>' : '') + '</span>';
+  }
+  function tile(k, v, small) { return '<div class="tile"><div class="k">' + k + '</div><div class="v">' + v + (small ? '<small>' + small + '</small>' : '') + '</div></div>'; }
+  function cutoffPanel(sec) {
+    var list = S.g.globalCutoffs[sec];
+    return '<div class="comp-card full-span"><h2>Also counts if</h2><div class="rung" style="border-top:0"><span class="tier" style="color:var(--ink-3)">Global cutoff</span>' +
+      '<div class="pills">' + list.map(function (c, i) { return (i ? '<span class="or-sep">or</span>' : '') + '<span class="pill all" title="' + esc(c.long) + '">' + esc(c.short) + '</span>'; }).join('') + '</div></div></div>';
   }
 
-  function pageCompetitionDetail(kind, params, app) {
-    var list = kind === 'continental' ? state.continental : state.international;
-    var row = list.find(function (r) { return slugify(r.competition) === params.slug; });
-    if (!row) { app.innerHTML = notFoundBlock(kind); return; }
-    var label = kind === 'continental' ? 'Continental' : 'International';
-    var html = '<div class="breadcrumb"><a href="#/' + kind + '">' + label + '</a> / ' + esc(row.competition) + '</div>';
-    html += '<div class="detail-header"><h1>' + esc(row.competition) + '</h1></div>';
-    html += '<div class="detail-meta"><span><strong>' + esc(row.confederation) + '</strong></span><span>Priority rank <strong>#' + esc(row.rank) + '</strong></span></div>';
-    html += '<div class="comp-card">' +
-      tierRow('Important', 'important', row.important) +
-      tierRow('Main', 'main', row.main) +
-      tierRow('Supplementary', 'supplementary', row.supplementary) +
-      '</div>';
+  function pageDomestic(p, app) {
+    var r = S.domestic.find(function (x) { return slug(x.country) === p.slug; });
+    if (!r) return notFound(app, 'domestic');
+    var comps = [['League · Top tier', 'top_tier'], ['League · Second tier', 'second_tier'], ['Main cup', 'main_cup'], ['League cup', 'league_cup'], ['Super cup', 'super_cup'], ['State championship', 'state_championship']];
+    var cards = comps.filter(function (c) { return r[c[1] + '_important'] || r[c[1] + '_main'] || r[c[1] + '_supplementary']; });
+    var html =
+      '<div class="crumbs"><a href="#/domestic">← Domestic</a>' + pager('domestic', r.country) + '</div>' +
+      '<div class="detail-hero"><div><div class="eyebrow">' + esc(r.confederation) + ' · ' + esc(versionLabel(S.version)) + '</div><h1 class="page-title">' + esc(r.country) + '</h1></div></div>' +
+      '<div class="tiles">' +
+      tile('MV rank', '#' + r._mvRank, 'of ' + S.domestic.length) +
+      tile('Top-tier clubs', esc(r.teams)) +
+      tile('Avg MV / club', money(r.average_market_value)) +
+      tile('Total MV', money(r.total_market_value)) +
+      '</div><div class="comp-grid">';
+    if (!cards.length) html += '<div class="comp-card full-span"><h2>No competition-specific rules</h2><p class="empty-note" style="margin:0 0 12px">Nothing in this country is covered by its own conditions — matches only count through the global cutoff below.</p></div>';
+    cards.forEach(function (c) {
+      html += '<div class="comp-card"><h2>' + c[0] + '</h2>' + ladder(r[c[1] + '_important'], r[c[1] + '_main'], r[c[1] + '_supplementary']) + '</div>';
+    });
+    html += cutoffPanel('domestic') + '</div>';
 
-    if (kind === 'continental') {
-      var histBlock = historyBlockContinental(row.competition);
-      if (histBlock) html += histBlock;
+    var pts = S.domHist.filter(function (h) { return h.country === r.country && h.tier === '1'; })
+      .map(function (h) { return { x: h.snapshot, y: num(h.average_market_value) }; });
+    if (!pts.some(function (q) { return q.x === S.version; }) && num(r.average_market_value) !== null) pts.push({ x: S.version, y: num(r.average_market_value) });
+    pts.sort(function (a, b) { return a.x < b.x ? -1 : 1; });
+    html += chartCard('Average club market value', 'Top-tier league, per snapshot', pts);
+    app.innerHTML = html;
+    bindChart(app);
+  }
+
+  function pageComp(sec, p, app) {
+    var list = SECTIONS[sec].data();
+    var r = list.find(function (x) { return slug(x.competition) === p.slug; });
+    if (!r) return notFound(app, sec);
+    var html =
+      '<div class="crumbs"><a href="#/' + sec + '">← ' + SECTIONS[sec].title + '</a>' + pager(sec, r.competition) + '</div>' +
+      '<div class="detail-hero"><div><div class="eyebrow">' + esc(r.confederation) + ' · ' + esc(versionLabel(S.version)) + '</div><h1 class="page-title">' + esc(r.competition) + '</h1></div></div>';
+    var pts = [];
+    if (sec === 'continental') {
+      pts = S.contHist.filter(function (h) { return h.competition === r.competition; }).map(function (h) { return { x: h.snapshot, y: num(h.average_market_value) }; });
+      pts.sort(function (a, b) { return a.x < b.x ? -1 : 1; });
     }
+    html += '<div class="tiles">' + tile('Priority', '#' + esc(r.rank), 'of ' + list.length) + tile('Confederation', esc(r.confederation)) +
+      (pts.length ? tile('Avg MV / club', money(pts[pts.length - 1].y), pts[pts.length - 1].x) : '') + '</div>';
+    html += '<div class="comp-grid"><div class="comp-card full-span"><h2>Conditions</h2>' + ladder(r.important, r.main, r.supplementary) + '</div>' + cutoffPanel(sec) + '</div>';
+    if (pts.length) html += chartCard('Average club market value', 'Per season snapshot', pts);
     app.innerHTML = html;
+    bindChart(app);
   }
 
-  function notFoundBlock(section) {
-    return '<h1 class="page-title">Not found</h1><p class="page-lede">Couldn\'t find that entry. <a href="#/' + section + '">Back to ' + section + '</a>.</p>';
+  function notFound(app, sec) {
+    app.innerHTML = '<h1 class="page-title">Not found</h1><p class="page-lede">That entry isn\'t in ' + esc(versionLabel(S.version)) + '. <a href="#/' + sec + '">Back to the list</a>.</p>';
   }
 
-  // ---- History mini charts ----
-  function historyBlockDomestic(country) {
-    var pts = state.domesticHistory.filter(function (r) { return r.country === country && r.tier === '1'; });
+  /* ---------------- chart ---------------- */
+  function chartCard(title, sub, pts) {
+    pts = pts.filter(function (q) { return q.y !== null; });
     if (!pts.length) return '';
-    pts.sort(function (a, b) { return a.snapshot < b.snapshot ? -1 : 1; });
-    return '<div class="comp-card"><h2>Average market value over time (top tier)</h2>' +
-      lineChart(pts.map(function (p) { return { label: p.snapshot, value: parseFloat(p.average_market_value) }; }), '€ M / team') +
-      '</div>';
-  }
-  function historyBlockContinental(competition) {
-    var pts = state.continentalHistory.filter(function (r) { return r.competition === competition; });
-    if (!pts.length) return '';
-    pts.sort(function (a, b) { return a.snapshot < b.snapshot ? -1 : 1; });
-    return '<div class="comp-card"><h2>Average market value over time</h2>' +
-      lineChart(pts.map(function (p) { return { label: p.snapshot, value: parseFloat(p.average_market_value) }; }), '€ M / team') +
-      '</div>';
-  }
-
-  function lineChart(points, unitLabel) {
-    if (points.length < 2) {
-      return '<p class="empty-note">Only one historical data point (' + esc(points[0].label) + ') — not enough to chart yet.</p>';
-    }
-    var W = 640, H = 180, padL = 44, padR = 16, padT = 16, padB = 28;
-    var vals = points.map(function (p) { return p.value; });
-    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
-    if (min === max) { min -= 1; max += 1; }
-    var range = max - min;
-    var innerW = W - padL - padR, innerH = H - padT - padB;
-    function x(i) { return padL + (i / (points.length - 1)) * innerW; }
-    function y(v) { return padT + innerH - ((v - min) / range) * innerH; }
-    var path = points.map(function (p, i) { return (i === 0 ? 'M' : 'L') + x(i).toFixed(1) + ',' + y(p.value).toFixed(1); }).join(' ');
-    var dots = points.map(function (p, i) {
-      var anchor = i === 0 ? 'start' : (i === points.length - 1 ? 'end' : 'middle');
-      return '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(p.value).toFixed(1) + '" r="3.5" fill="var(--accent)"></circle>' +
-        '<text x="' + x(i).toFixed(1) + '" y="' + (H - 8) + '" font-size="10" fill="var(--ink-muted)" text-anchor="' + anchor + '">' + esc(p.label) + '</text>';
-    }).join('');
-    var yTopLabel = max.toFixed(0), yBotLabel = min.toFixed(0);
-    var svg = '<div class="history-chart-wrap"><svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Market value trend">' +
-      '<line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (padT + innerH) + '" stroke="var(--gridline)" stroke-width="1"></line>' +
-      '<line x1="' + padL + '" y1="' + (padT + innerH) + '" x2="' + (padL + innerW) + '" y2="' + (padT + innerH) + '" stroke="var(--gridline)" stroke-width="1"></line>' +
-      '<text x="4" y="' + (padT + 4) + '" font-size="10" fill="var(--ink-muted)">' + esc(yTopLabel) + '</text>' +
-      '<text x="4" y="' + (padT + innerH) + '" font-size="10" fill="var(--ink-muted)">' + esc(yBotLabel) + '</text>' +
-      '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2"></path>' +
-      dots +
-      '</svg></div><div class="history-legend"><span><span class="dot" style="background:var(--accent)"></span>' + esc(unitLabel) + '</span></div>';
-    return svg;
-  }
-
-  // ---- Glossary page ----
-  function pageGlossary(params, app) {
-    var g = state.glossary;
-    var html = '<h1 class="page-title">Glossary &amp; methodology</h1>';
-    html += '<p class="page-lede">What every shorthand code in the criteria means, and how the ranking-based rules are actually computed through a season.</p>';
-
-    html += '<div class="glossary-block"><h2 class="section-title">Letter codes (with a number)</h2><table class="code-table"><thead><tr><th>Code</th><th>Name</th><th>Meaning</th></tr></thead><tbody>';
-    Object.keys(g.letterCodes).forEach(function (k) {
-      var d = g.letterCodes[k];
-      html += '<tr><td><code>' + esc(k) + 'N</code></td><td>' + esc(d.name) + '</td><td>' + esc(d.template.replace('{N}', 'N')) + (d.scope ? ' <br><span style="color:var(--ink-muted)">' + esc(d.scope) + '</span>' : '') + '</td></tr>';
-    });
-    html += '</tbody></table></div>';
-
-    html += '<div class="glossary-block"><h2 class="section-title">Round codes</h2><table class="code-table"><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody>';
-    Object.keys(g.roundCodes).forEach(function (k) {
-      html += '<tr><td><code>' + esc(k) + '</code></td><td>' + esc(g.roundCodes[k]) + '</td></tr>';
-    });
-    html += '</tbody></table></div>';
-
-    html += '<div class="glossary-block"><h2 class="section-title">Coverage words (Supplementary tier)</h2><table class="code-table"><thead><tr><th>Word</th><th>Meaning</th></tr></thead><tbody>';
-    Object.keys(g.coverageWords).forEach(function (k) {
-      html += '<tr><td><code>' + esc(k) + '</code></td><td>' + esc(g.coverageWords[k]) + '</td></tr>';
-    });
-    html += '</tbody></table></div>';
-
-    html += '<div class="glossary-block"><h2 class="section-title">The "/" separator</h2><p>' + esc(g.separator.meaning) + '</p></div>';
-
-    html += '<div class="glossary-block"><h2 class="section-title">Global cutoffs</h2>';
-    html += rulesCard('Domestic', g.globalCutoffs.domestic);
-    html += rulesCard('Continental', g.globalCutoffs.continental);
-    html += rulesCard('International', g.globalCutoffs.international);
-    html += '<div class="note-box">' + esc(g.globalCutoffs.note) + '</div></div>';
-
-    html += '<div class="glossary-block"><h2 class="section-title">Ranking methodology</h2><ol class="glossary-list">' +
-      g.rankingMethodology.map(function (l) { return '<li style="margin-bottom:8px; color:var(--ink-secondary); font-size:14px;">' + esc(l) + '</li>'; }).join('') +
-      '</ol></div>';
-
-    app.innerHTML = html;
-  }
-
-  // ---------------------------------------------------------------------
-  // Boot
-  // ---------------------------------------------------------------------
-  route('/', pageHome);
-  route('/all', pageAll);
-  route('/domestic', pageDomesticList);
-  route('/continental', pageContinentalList);
-  route('/international', pageInternationalList);
-  route('/domestic/:slug', pageDomesticDetail);
-  route('/continental/:slug', function (params, app) { pageCompetitionDetail('continental', params, app); });
-  route('/international/:slug', function (params, app) { pageCompetitionDetail('international', params, app); });
-  route('/glossary', pageGlossary);
-
-  function loadVersion(versionId) {
-    var base = 'data/' + versionId + '/';
-    return Promise.all([
-      fetchCSV(base + 'domestic.csv'),
-      fetchCSV(base + 'continental.csv'),
-      fetchCSV(base + 'international.csv')
-    ]).then(function (results) {
-      state.version = versionId;
-      state.domestic = results[0];
-      state.continental = results[1];
-      state.international = results[2];
-      buildSearchIndex();
-    });
-  }
-
-  function boot() {
-    Promise.all([
-      fetchJSON('data/versions.json'),
-      fetchJSON('data/glossary.json'),
-      fetchCSV('data/history/domestic_market_value.csv').catch(function () { return []; }),
-      fetchCSV('data/history/continental_market_value.csv').catch(function () { return []; })
-    ]).then(function (r) {
-      state.versions = r[0];
-      state.glossary = r[1];
-      state.domesticHistory = r[2];
-      state.continentalHistory = r[3];
-
-      var select = document.getElementById('version-select');
-      select.innerHTML = state.versions.map(function (v) {
-        return '<option value="' + v.id + '">' + esc(v.label) + (v.status === 'current' ? ' (current)' : '') + '</option>';
+    var body;
+    if (pts.length < 2) body = '<p class="empty-note">Only one data point so far (' + esc(snapLabel(pts[0].x)) + ': ' + money(pts[0].y) + ').</p>';
+    else {
+      var W = 720, H = 220, L = 52, R = 56, T = 18, B = 30;
+      var ys = pts.map(function (q) { return q.y; });
+      var lo = Math.min.apply(null, ys), hi = Math.max.apply(null, ys), pad = (hi - lo) * 0.15 || hi * 0.1 || 1;
+      lo = Math.max(0, lo - pad); hi = hi + pad;
+      var iw = W - L - R, ih = H - T - B;
+      var X = function (i) { return L + (pts.length === 1 ? iw / 2 : i * iw / (pts.length - 1)); };
+      var Y = function (v) { return T + ih - (v - lo) / (hi - lo) * ih; };
+      var grid = '';
+      for (var g = 0; g <= 3; g++) {
+        var v = lo + (hi - lo) * g / 3, y = Y(v);
+        grid += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y + '" y2="' + y + '" stroke="var(--line-soft)" stroke-width="1"' + (g === 0 ? ' style="stroke:var(--line)"' : '') + '/>' +
+          '<text x="' + (L - 8) + '" y="' + (y + 4) + '" text-anchor="end" font-size="11" fill="var(--ink-3)">' + money(v) + '</text>';
+      }
+      var d = pts.map(function (q, i) { return (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(q.y).toFixed(1); }).join(' ');
+      var area = d + ' L' + X(pts.length - 1).toFixed(1) + ' ' + (T + ih) + ' L' + X(0).toFixed(1) + ' ' + (T + ih) + ' Z';
+      var marks = pts.map(function (q, i) {
+        return '<text x="' + X(i) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="11" fill="var(--ink-3)">' + esc(snapLabel(q.x)) + '</text>' +
+          '<circle class="pt" data-i="' + i + '" cx="' + X(i) + '" cy="' + Y(q.y) + '" r="4.5" fill="var(--surface)" stroke="var(--bar)" stroke-width="2"/>';
       }).join('');
-      var current = state.versions.find(function (v) { return v.status === 'current'; }) || state.versions[0];
-      select.value = current.id;
-      document.getElementById('footer-version-note').textContent =
-        'Showing ' + current.label + '. Criteria updated twice a year (March & September).';
-
-      select.addEventListener('change', function () {
-        loadVersion(select.value).then(function () {
-          var v = state.versions.find(function (v) { return v.id === select.value; });
-          document.getElementById('footer-version-note').textContent = 'Showing ' + v.label + '.';
-          dispatch();
+      var last = pts[pts.length - 1];
+      var hits = pts.map(function (q, i) {
+        var w = iw / Math.max(1, pts.length - 1);
+        return '<rect class="hit" data-i="' + i + '" data-t="' + esc(snapLabel(q.x) + ' · ' + money(q.y)) + '" data-x="' + X(i) + '" data-y="' + Y(q.y) + '" x="' + (X(i) - w / 2) + '" y="' + T + '" width="' + w + '" height="' + ih + '" fill="transparent"/>';
+      }).join('');
+      body = '<div class="chart"><svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(title) + '">' +
+        '<defs><linearGradient id="ga" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--bar)" stop-opacity=".22"/><stop offset="1" stop-color="var(--bar)" stop-opacity="0"/></linearGradient></defs>' +
+        grid + '<path d="' + area + '" fill="url(#ga)"/>' +
+        '<path d="' + d + '" fill="none" stroke="var(--bar)" stroke-width="2" stroke-linejoin="round"/>' + marks +
+        '<text x="' + (X(pts.length - 1) + 10) + '" y="' + (Y(last.y) + 4) + '" font-size="12" font-weight="700" fill="var(--ink)">' + money(last.y) + '</text>' +
+        hits + '</svg><div class="chart-tip"></div></div>';
+    }
+    return '<div class="chart-card"><h2>' + esc(title) + '</h2><p class="sub">' + esc(sub) + '</p>' + body + '</div>';
+  }
+  function bindChart(app) {
+    app.querySelectorAll('.chart').forEach(function (c) {
+      var svg = c.querySelector('svg'), tip = c.querySelector('.chart-tip');
+      c.querySelectorAll('.hit').forEach(function (h) {
+        h.addEventListener('mouseenter', function () {
+          var box = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal, s = box.width / vb.width;
+          tip.textContent = h.getAttribute('data-t');
+          tip.style.left = (parseFloat(h.getAttribute('data-x')) * s) + 'px';
+          tip.style.top = (parseFloat(h.getAttribute('data-y')) * s) + 'px';
+          tip.style.display = 'block';
+          c.querySelectorAll('.pt').forEach(function (p) { p.setAttribute('r', p.getAttribute('data-i') === h.getAttribute('data-i') ? 6 : 4.5); });
+        });
+        h.addEventListener('mouseleave', function () {
+          tip.style.display = 'none';
+          c.querySelectorAll('.pt').forEach(function (p) { p.setAttribute('r', 4.5); });
         });
       });
-
-      return loadVersion(current.id);
-    }).then(dispatch).catch(function (e) {
-      console.error(e);
-      document.getElementById('app').innerHTML = '<p class="empty-note">Couldn\'t load the criteria data.</p>';
     });
   }
 
+  /* ---------------- home ---------------- */
+  function pageHome(p, app) {
+    var g = S.g;
+    function card(sec, desc, topRows, valFn) {
+      return '<a class="s-card" href="#/' + sec + '"><div class="s-card-top"><h3>' + SECTIONS[sec].title + '</h3><span class="count">' + SECTIONS[sec].data().length + '</span></div>' +
+        '<p class="desc">' + desc + '</p><ol>' + topRows.map(function (r, i) {
+          return '<li><span class="k">' + (i + 1) + '</span><span class="n">' + esc(nameOf(sec, r)) + '</span><span class="v">' + valFn(r) + '</span></li>';
+        }).join('') + '</ol><span class="go">Browse ' + SECTIONS[sec].title.toLowerCase() + ' →</span></a>';
+    }
+    var byMV = S.domestic.slice().sort(function (a, b) { return a._mvRank - b._mvRank; }).slice(0, 4);
+    var byRank = function (l) { return l.slice().sort(function (a, b) { return num(a.rank) - num(b.rank); }).slice(0, 4); };
+    app.innerHTML =
+      '<section class="hero">' + pitchSVG() +
+      '<div class="eyebrow">' + esc(versionLabel(S.version)) + ' standard</div>' +
+      '<h1>Which matches<br>make the cut</h1>' +
+      '<p>My personal standard for subscribing to football — every league, cup and tournament I follow, and exactly which of their matches count. Revised every March and September, mostly on transfer-market values.</p>' +
+      '<div class="search"><svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8.5" cy="8.5" r="6"/><path d="M13 13l5 5"/></svg>' +
+      '<input type="search" id="hs" placeholder="Search a country or competition…" autocomplete="off"><div class="search-results" id="hr"></div></div>' +
+      '</section>' +
+      '<div class="section-cards">' +
+      card('domestic', 'Countries, by average club value', byMV, function (r) { return money(r.average_market_value); }) +
+      card('continental', 'Club competitions, by priority', byRank(S.continental), function (r) { return '#' + r.rank; }) +
+      card('international', 'National-team events, by priority', byRank(S.international), function (r) { return '#' + r.rank; }) +
+      '</div>' +
+      '<div class="section-head"><h2>Reading the criteria</h2><a class="aside" href="#/guide">Full guide →</a></div>' +
+      '<div class="two-col">' +
+      '<div class="panel"><h3>Three tiers per competition</h3><ul class="legend-list">' +
+      g.tiers.map(function (t) { return '<li><span class="tier ' + t.key + '">' + t.name + '</span><span class="note">' + esc(t.blurb) + '</span></li>'; }).join('') +
+      '</ul><p class="fine">' + esc(g.separator) + '</p></div>' +
+      '<div class="panel"><h3>Global cutoffs</h3><div class="cutoff-list">' +
+      ['domestic', 'continental', 'international'].map(function (k) {
+        return '<div class="cutoff-row"><span class="lbl">' + SECTIONS[k].title + '</span><div class="pills">' +
+          g.globalCutoffs[k].map(function (c, i) { return (i ? '<span class="or-sep">or</span>' : '') + '<span class="pill all sm" title="' + esc(c.long) + '">' + esc(c.short) + '</span>'; }).join('') + '</div></div>';
+      }).join('') + '</div><p class="fine">' + esc(g.globalCutoffs.note) + '</p></div>' +
+      '</div>';
+    bindSearch();
+  }
+  function pitchSVG() {
+    return '<svg class="hero-pitch" viewBox="0 0 420 280" fill="none" stroke="#fff" stroke-width="2.5" aria-hidden="true">' +
+      '<rect x="4" y="4" width="412" height="272" rx="4"/><line x1="210" y1="4" x2="210" y2="276"/><circle cx="210" cy="140" r="44"/><circle cx="210" cy="140" r="3" fill="#fff"/>' +
+      '<rect x="4" y="68" width="66" height="144"/><rect x="4" y="106" width="24" height="68"/><rect x="350" y="68" width="66" height="144"/><rect x="392" y="106" width="24" height="68"/>' +
+      '<path d="M70 110a36 36 0 0 1 0 60M350 110a36 36 0 0 0 0 60"/></svg>';
+  }
+  function bindSearch() {
+    var inp = document.getElementById('hs'), res = document.getElementById('hr'), hits = [], kb = 0;
+    function render() {
+      var q = inp.value.trim().toLowerCase();
+      if (!q) { res.classList.remove('open'); return; }
+      hits = S.index.filter(function (e) { return e.label.toLowerCase().indexOf(q) !== -1; })
+        .sort(function (a, b) { return (a.label.toLowerCase().indexOf(q) === 0 ? 0 : 1) - (b.label.toLowerCase().indexOf(q) === 0 ? 0 : 1); }).slice(0, 12);
+      kb = 0;
+      res.innerHTML = hits.length ? hits.map(function (h, i) {
+        return '<a href="' + h.href + '" class="' + (i === kb ? 'kb' : '') + '">' + esc(h.label) + '<span class="tag">' + h.type + '</span></a>';
+      }).join('') : '<div class="search-empty">No country or competition matches “' + esc(inp.value) + '”.</div>';
+      res.classList.add('open');
+    }
+    inp.addEventListener('input', render);
+    inp.addEventListener('keydown', function (e) {
+      if (!hits.length) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault(); kb = (kb + (e.key === 'ArrowDown' ? 1 : -1) + hits.length) % hits.length;
+        res.querySelectorAll('a').forEach(function (a, i) { a.classList.toggle('kb', i === kb); });
+      } else if (e.key === 'Enter') { location.hash = hits[kb].href; }
+    });
+    document.addEventListener('click', function (e) { if (!e.target.closest('.search')) res.classList.remove('open'); });
+  }
+
+  /* ---------------- guide ---------------- */
+  function pageGuide(p, app) {
+    var g = S.g;
+    function row(label, meaning, code) {
+      return '<tr><td><span class="pill sm">' + esc(label) + '</span></td><td>' + esc(meaning) + (code ? ' <code class="code">' + esc(code) + '</code>' : '') + '</td></tr>';
+    }
+    var cond = Object.keys(g.letterCodes).map(function (k) {
+      var d = g.letterCodes[k];
+      return row(d.short.replace('{N}', 'N'), d.long.replace('{N}', 'N') + (d.scope ? ' ' + d.scope : ''), k === 'C' ? 'C' : k + '#');
+    }).join('') + Object.keys(g.coverageWords).map(function (k) { return row(g.coverageWords[k].short, g.coverageWords[k].long, k); }).join('');
+    var rounds = Object.keys(g.roundCodes).map(function (k) { return row(g.roundCodes[k].short, g.roundCodes[k].name, k); }).join('');
+    app.innerHTML =
+      '<div class="eyebrow">Guide</div><h1 class="page-title">How it works</h1>' +
+      '<p class="page-lede">Every competition has up to three tiers. Each tier lists the kinds of match that qualify for it. Hover any condition on the site to see the exact rule and the code used in the data files.</p>' +
+      '<div class="two-col" style="margin-bottom:16px">' +
+      '<div class="panel"><h3>The tiers</h3><ul class="legend-list">' + g.tiers.map(function (t) { return '<li><span class="tier ' + t.key + '">' + t.name + '</span><span class="note">' + esc(t.blurb) + '</span></li>'; }).join('') + '</ul><p class="fine">' + esc(g.separator) + '</p></div>' +
+      '<div class="panel"><h3>How rankings are read</h3><ol class="steps">' + g.rankingMethodology.map(function (s) { return '<li><span>' + esc(s) + '</span></li>'; }).join('') + '</ol></div>' +
+      '</div>' +
+      '<div class="guide-grid">' +
+      '<div class="panel"><h3>Conditions</h3><table class="guide-table"><thead><tr><th>Shown as</th><th>Meaning</th></tr></thead><tbody>' + cond + '</tbody></table></div>' +
+      '<div class="panel"><h3>Rounds (knockout stages)</h3><table class="guide-table"><thead><tr><th>Shown as</th><th>Meaning</th></tr></thead><tbody>' + rounds + '</tbody></table>' +
+      '<p class="fine">A round means that round and every one after it.</p></div>' +
+      '</div>' +
+      '<div class="section-head"><h2>Global cutoffs</h2></div><div class="panel"><div class="cutoff-list">' +
+      ['domestic', 'continental', 'international'].map(function (k) {
+        return '<div class="cutoff-row"><span class="lbl">' + SECTIONS[k].title + '</span><div>' + g.globalCutoffs[k].map(function (c) { return '<div style="margin-bottom:4px"><strong>' + esc(c.short) + '</strong> <span class="muted">— ' + esc(c.long) + '</span></div>'; }).join('') + '</div></div>';
+      }).join('') + '</div><p class="fine">' + esc(g.globalCutoffs.note) + '</p></div>';
+  }
+
+  /* ---------------- router ---------------- */
+  var routes = [
+    [/^\/$/, pageHome],
+    [/^\/(domestic|continental|international)$/, function (m, app) { pageList(m[1], app); }],
+    [/^\/domestic\/([^/]+)$/, function (m, app) { pageDomestic({ slug: m[1] }, app); }],
+    [/^\/(continental|international)\/([^/]+)$/, function (m, app) { pageComp(m[1], { slug: m[2] }, app); }],
+    [/^\/(guide|glossary)$/, pageGuide]
+  ];
+  var lastPath = null;
+  function dispatch() {
+    var path = (location.hash.replace(/^#/, '') || '/').split('?')[0].replace(/(.)\/$/, '$1');
+    var app = document.getElementById('app');
+    var sec = path.split('/')[1] || '';
+    if (sec === 'glossary') sec = 'guide';
+    document.querySelectorAll('.main-nav a').forEach(function (a) { a.classList.toggle('active', a.getAttribute('data-nav') === sec); });
+    for (var i = 0; i < routes.length; i++) {
+      var m = path.match(routes[i][0]);
+      if (m) {
+        try { routes[i][1](m, app); } catch (e) { console.error(e); app.innerHTML = '<p class="empty-note">Something went wrong rendering this page.</p>'; }
+        if (path !== lastPath) window.scrollTo(0, 0);
+        lastPath = path;
+        document.title = (app.querySelector('h1') ? app.querySelector('h1').textContent.replace(/\s+/g, ' ') + ' · ' : '') + 'Subscription Criteria';
+        if (path === '/') document.title = 'Subscription Criteria';
+        return;
+      }
+    }
+    app.innerHTML = '<h1 class="page-title">Not found</h1><p class="page-lede"><a href="#/">Go home</a></p>';
+  }
+
+  /* ---------------- boot ---------------- */
+  function loadVersion(id) {
+    var b = 'data/' + id + '/';
+    return Promise.all([csv(b + 'domestic.csv'), csv(b + 'continental.csv'), csv(b + 'international.csv')]).then(function (r) {
+      S.version = id; S.domestic = r[0]; S.continental = r[1]; S.international = r[2];
+      S.domestic.slice().sort(function (a, b) { return (num(b.average_market_value) || 0) - (num(a.average_market_value) || 0); })
+        .forEach(function (x, i) { x._mvRank = i + 1; });
+      S.index = [].concat(
+        S.domestic.map(function (x) { return { label: x.country, type: 'Domestic', href: '#/domestic/' + slug(x.country) }; }),
+        S.continental.map(function (x) { return { label: x.competition, type: 'Continental', href: '#/continental/' + slug(x.competition) }; }),
+        S.international.map(function (x) { return { label: x.competition, type: 'International', href: '#/international/' + slug(x.competition) }; })
+      );
+      document.getElementById('footer-note').textContent = 'Showing the ' + versionLabel(id) + ' standard · updated every March and September · market values in euros (Transfermarkt).';
+    });
+  }
+  function boot() {
+    Promise.all([
+      get('data/versions.json', true), get('data/glossary.json', true),
+      csv('data/history/domestic_market_value.csv').catch(function () { return []; }),
+      csv('data/history/continental_market_value.csv').catch(function () { return []; })
+    ]).then(function (r) {
+      S.versions = r[0]; S.g = r[1]; S.domHist = r[2]; S.contHist = r[3];
+      var sel = document.getElementById('version-select');
+      sel.innerHTML = S.versions.map(function (v) { return '<option value="' + v.id + '">' + esc(v.label) + '</option>'; }).join('');
+      var cur = S.versions.find(function (v) { return v.status === 'current'; }) || S.versions[S.versions.length - 1];
+      sel.value = cur.id;
+      sel.addEventListener('change', function () { loadVersion(sel.value).then(dispatch); });
+      return loadVersion(cur.id);
+    }).then(dispatch).catch(function (e) {
+      console.error(e);
+      document.getElementById('app').innerHTML = '<p class="empty-note">Couldn\'t load the criteria data. If you opened index.html directly from disk, serve the folder over http instead (GitHub Pages does this for you).</p>';
+    });
+  }
   window.addEventListener('hashchange', dispatch);
   document.addEventListener('DOMContentLoaded', boot);
 })();

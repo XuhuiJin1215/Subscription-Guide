@@ -1,67 +1,71 @@
 {
-  "roundCodes": {
-    "F": "Final",
-    "SF": "Semifinal",
-    "QF": "Quarterfinal",
-    "PQF": "Path Quarterfinal (Russian Cup's regional-path format)",
-    "R16": "Round of 16",
-    "RO16": "Round of 16 (used interchangeably with R16)",
-    "R32": "Round of 32",
-    "R1": "First Round",
-    "GS": "Group Stage",
-    "LAGS": "League A Group Stage (UEFA Nations League)",
-    "Q": "Qualification decider (a match that could decide qualification, e.g. to the World Cup or Euros)"
-  },
-  "coverageWords": {
-    "full": "Every match in this competition/tier is included, including qualifying rounds for continental competitions.",
-    "all": "Same as \"full\" — every match included. (Kept as a separate word in the data only because the source sheet wasn't fully consistent between the two.)",
-    "top": "Matches from the round when top-tier/big clubs enter the competition onward, any round, regardless of opponent."
-  },
+  "tiers": [
+    { "key": "important", "name": "Important", "blurb": "Highest priority" },
+    { "key": "main", "name": "Main", "blurb": "Regular priority" },
+    { "key": "supplementary", "name": "Supplementary", "blurb": "Lowest priority" }
+  ],
   "letterCodes": {
     "O": {
-      "name": "Odds-based",
-      "template": "Both teams' decimal win odds are {N} or lower.",
-      "scope": "Only used for the Important tier of the Top-Tier league in the five leagues that have one (England, Spain, Germany, Italy, France), and only for the first half of the season — see the ranking methodology note."
+      "name": "Odds",
+      "short": "Odds ≤ {N}",
+      "long": "Both teams' decimal odds are {N} or lower.",
+      "scope": "Top-tier Important column only, first half of the season (before the final round-robin)."
     },
     "S": {
       "name": "Combined ranking",
-      "template": "The two teams' rankings add up to {N} or less.",
-      "scope": "Domestic leagues: league standing position. International matches: FIFA world ranking. See the ranking methodology note for how \"ranking\" is determined through the season."
+      "short": "Rank sum ≤ {N}",
+      "long": "The two teams' rankings add up to {N} or less.",
+      "scope": "League standings for domestic matches; FIFA ranking for international matches. Where a cell lists more than one rank-sum threshold, each belongs to a different phase of the season (see the ranking rules below) rather than being active at the same time."
     },
     "T": {
-      "name": "Individual top-ranked team",
-      "template": "At least one of the two teams is individually ranked {N} or better — this match counts regardless of who the opponent is.",
-      "scope": "Domestic leagues: current league standing (or FIFA/individual competition ranking depending on context). International matches (T30 specifically): either team's FIFA world ranking."
+      "name": "Top team",
+      "short": "Top-{N} side involved",
+      "long": "At least one team is ranked in the top {N} — included regardless of opponent.",
+      "scope": "League standings for domestic matches (last season for matchdays 1–7, live from matchday 8); FIFA ranking for international matches."
     },
     "C": {
       "name": "Title decider",
-      "template": "A match that could decide the competition's champion.",
-      "scope": "Used across domestic league/cup columns and one international entry (EAFF E-1 Championship)."
+      "short": "Title decider",
+      "long": "A match that can decide the title.",
+      "scope": ""
     }
   },
-  "separator": {
-    "symbol": "/",
-    "meaning": "OR — a match qualifies for a tier if it satisfies ANY of the slash-separated conditions in that cell. The same OR logic applies between the per-row rules and the global cutoffs below: if a match satisfies either, it's included."
+  "roundCodes": {
+    "F":    { "name": "Final",              "short": "Final" },
+    "SF":   { "name": "Semi-final",         "short": "Semi-finals on" },
+    "QF":   { "name": "Quarter-final",      "short": "Quarter-finals on" },
+    "PQF":  { "name": "Path quarter-final (Russian Cup)", "short": "Path quarter-finals on" },
+    "R16":  { "name": "Round of 16",        "short": "Round of 16 on" },
+    "R32":  { "name": "Round of 32",        "short": "Round of 32 on" },
+    "R1":   { "name": "First round",        "short": "First round on" },
+    "GS":   { "name": "Group stage",        "short": "Group stage on" },
+    "LAGS": { "name": "League A group stage (UEFA Nations League)", "short": "League A group stage" },
+    "Q":    { "name": "Qualification decider", "short": "Qualification deciders" }
   },
+  "coverageWords": {
+    "full": { "short": "Every match", "long": "Every match, including qualifying rounds for continental club competitions." },
+    "top":  { "short": "Once top-flight clubs enter", "long": "Every round from the point top-tier clubs join the cup." }
+  },
+  "separator": "Conditions in the same tier are alternatives — a match needs to meet any one of them. The same applies between a competition's own conditions and the global cutoffs.",
   "globalCutoffs": {
     "domestic": [
-      "Combined real-time market value of both teams ≥ €500M — promotes a match to the Important tier regardless of country, competition, or round."
+      { "short": "Combined MV ≥ €500M", "long": "Both teams' real-time market values add up to €500M or more." }
     ],
     "continental": [
-      "Combined real-time market value of both teams ≥ €300M — promotes a match to the Important tier regardless of competition or round."
+      { "short": "Combined MV ≥ €300M", "long": "Both teams' real-time market values add up to €300M or more." }
     ],
     "international": [
-      "Combined real-time market value of both teams ≥ €300M, OR",
-      "Combined FIFA world ranking of both teams ≤ 120 (this is the same \"S\" logic as S120), OR",
-      "Either team's FIFA world ranking ≤ 30 (this is the same \"T\" logic as T30)",
-      "— any of these promotes a match to the Important tier regardless of competition or round."
+      { "short": "Combined MV ≥ €300M", "long": "Both teams' real-time market values add up to €300M or more." },
+      { "short": "FIFA rank sum ≤ 120", "long": "The two teams' FIFA rankings add up to 120 or less." },
+      { "short": "FIFA top 30 involved", "long": "Either team is ranked 30th or better by FIFA." }
     ],
-    "note": "These global cutoffs sit outside the per-competition Important/Main/Supplementary columns in the source sheet, so which exact tier they promote to is Claude's best reading of the intent (Important, the top tier) rather than something explicitly labelled — worth Xuhui double-checking."
+    "note": "The sheet lists these cutoffs outside the Important / Main / Supplementary columns, so the site shows them as a separate route in — not tied to a specific tier."
   },
   "rankingMethodology": [
-    "Matchdays 1–7 of a league season: use the previous season's final standings. (Doesn't apply to leagues without a stable prior-season basis, such as the EFL Championship, where promoted/relegated teams make last season's table not meaningfully comparable.)",
-    "Matchday 8 onward: use real-time, current-season standings.",
-    "For leagues with more than two round-robins in a season (e.g. leagues that split into championship/relegation groups): only the standings from the last two round-robins are used.",
-    "For Important-tier qualification specifically: only the final round-robin's standings are used for the ranking (S) rule. Before that point in the season, the odds-based (O) rule is used instead for the Important tier — this only affects the five leagues with an Important-tier column at all (England, Spain, Germany, Italy, France)."
+    "Matchdays 1–7: use last season's final standings. This doesn't apply to lower-tier leagues such as the EFL Championship.",
+    "Matchday 8 onward: use real-time standings.",
+    "Leagues with more than two round-robins: only the last two round-robins use the ranking rules.",
+    "Important tier: ranking is only used in the final round-robin. In the first half of the season, odds are used instead.",
+    "A cell with more than one rank-sum (S) value is giving one threshold per phase, not simultaneous alternatives — e.g. Belgium's top tier uses S2 for the regular season and S5 once it splits into the championship round."
   ]
 }
