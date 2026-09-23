@@ -13,10 +13,11 @@ app.js               router, data loading, rendering — the whole app
 data/
   versions.json       list of available snapshots, which one is "current"
   glossary.json        the code glossary + methodology text shown on the Glossary page
-  2026-03/
+  2026-09/            current snapshot
     domestic.csv        one row per country
     continental.csv      one row per continental competition
     international.csv    one row per international competition
+  2026-03/            previous snapshot, same shape
   history/
     domestic_market_value.csv      market-value-only history reconstructed from older files
                                     (2024–2025 snapshots; no per-round criteria, just MV over time)

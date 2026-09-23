@@ -38,6 +38,7 @@
     "R16":  { "name": "Round of 16",        "short": "Round of 16 +" },
     "R32":  { "name": "Round of 32",        "short": "Round of 32 +" },
     "R1":   { "name": "First round",        "short": "First round +" },
+    "PO":   { "name": "Play-off",           "short": "Play-off +" },
     "GS":   { "name": "Group stage",        "short": "Group stage +" },
     "LAGS": { "name": "League A group stage (UEFA Nations League)", "short": "League A group stage" },
     "Q":    { "name": "Qualification decider", "short": "Qualification deciders" }

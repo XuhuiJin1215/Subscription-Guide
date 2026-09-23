@@ -58,15 +58,15 @@
     { n: 1, range: '≥ €200M' },
     { n: 2, range: '€40–200M' },
     { n: 3, range: '€30–40M' },
-    { n: 4, range: '€8–30M' },
-    { n: 5, range: '< €8M — not part of the tracked criteria' }
+    { n: 4, range: '€7–30M' },
+    { n: 5, range: '< €7M — not part of the tracked criteria' }
   ];
   function mvTier(avg) {
     if (avg === null) return 5;
     if (avg >= 200) return 1;
     if (avg >= 40) return 2;
     if (avg >= 30) return 3;
-    if (avg >= 8) return 4;
+    if (avg >= 7) return 4;
     return 5;
   }
   function mvTierBadge(n) {
