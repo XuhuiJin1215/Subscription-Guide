@@ -187,8 +187,6 @@
       }).join('') +
       '</tr></thead><tbody id="tb"></tbody></table></div></div>';
 
-    var maxAvg = Math.max.apply(null, S.domestic.map(function (r) { return num(r.average_market_value) || 0; }));
-
     function draw() {
       var vis = visibleRows(sec);
       document.getElementById('count').textContent = vis.length + ' of ' + rows.length + (sec === 'domestic' ? ' countries' : ' competitions');
@@ -201,14 +199,12 @@
         var href = '#/' + sec + '/' + slug(nameOf(sec, r));
         if (sec === 'domestic') {
           var avgN = num(r.average_market_value);
-          var avg = avgN || 0;
-          var w = maxAvg ? Math.max(2, Math.sqrt(avg / maxAvg) * 100) : 0;
           var tn = mvTier(avgN);
           return '<tr data-href="' + href + '" class="mvtier-' + tn + '">' +
             '<td class="rank">' + r._mvRank + '</td>' +
             '<td class="name"><a href="' + href + '">' + esc(r.country) + '</a><span class="confed">' + esc(r.confederation) + '</span></td>' +
             '<td class="r num hide-sm">' + esc(r.teams) + '</td>' +
-            '<td class="r"><div class="mv-cell"><div class="mv-bar"><span style="width:' + w.toFixed(1) + '%"></span></div><span class="val">' + money(r.average_market_value) + '</span></div></td>' +
+            '<td class="r num">' + money(r.average_market_value) + '</td>' +
             '<td class="r num hide-sm">' + money(r.total_market_value) + '</td>' +
             '<td class="cond hide-sm">' + codeCell(r.top_tier_important) + '</td>' +
             '<td class="cond hide-sm">' + codeCell(r.top_tier_main) + '</td>' +
