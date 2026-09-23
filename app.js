@@ -206,7 +206,7 @@
           var tn = mvTier(avgN);
           return '<tr data-href="' + href + '" class="mvtier-' + tn + '">' +
             '<td class="rank">' + r._mvRank + '</td>' +
-            '<td class="name"><a href="' + href + '">' + esc(r.country) + '</a><span class="confed">' + esc(r.confederation) + '</span>' + mvTierBadge(tn) + '</td>' +
+            '<td class="name"><a href="' + href + '">' + esc(r.country) + '</a><span class="confed">' + esc(r.confederation) + '</span></td>' +
             '<td class="r num hide-sm">' + esc(r.teams) + '</td>' +
             '<td class="r"><div class="mv-cell"><div class="mv-bar"><span style="width:' + w.toFixed(1) + '%"></span></div><span class="val">' + money(r.average_market_value) + '</span></div></td>' +
             '<td class="r num hide-sm">' + money(r.total_market_value) + '</td>' +
