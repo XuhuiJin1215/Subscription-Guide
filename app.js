@@ -5,7 +5,7 @@
   var S = {
     versions: [], version: null, g: null,
     domestic: [], continental: [], international: [],
-    domHist: [], contHist: [],
+    domHist: [],
     index: [],
     list: {} // remembered filter/sort per section
   };
@@ -51,6 +51,28 @@
     return (m[2] === '03' ? 'Mar' : m[2] === '09' ? 'Sep' : m[2]) + ' ' + m[1].slice(2);
   }
   function versionLabel(id) { var v = S.versions.find(function (x) { return x.id === id; }); return v ? v.label : id; }
+  function confedParts(c) { return String(c || '').split('-').map(function (s) { return s.trim(); }).filter(Boolean); }
+
+  /* ---------------- market-value tiers (domestic only) ---------------- */
+  var MVTIERS = [
+    { n: 1, range: '≥ €200M' },
+    { n: 2, range: '€40–200M' },
+    { n: 3, range: '€30–40M' },
+    { n: 4, range: '€8–30M' },
+    { n: 5, range: '< €8M — not part of the tracked criteria' }
+  ];
+  function mvTier(avg) {
+    if (avg === null) return 5;
+    if (avg >= 200) return 1;
+    if (avg >= 40) return 2;
+    if (avg >= 30) return 3;
+    if (avg >= 8) return 4;
+    return 5;
+  }
+  function mvTierBadge(n) {
+    var t = MVTIERS[n - 1];
+    return '<span class="mvtier-badge t' + n + '" title="Tier ' + n + ' · ' + esc(t.range) + '">T' + n + '</span>';
+  }
 
   /* ---------------- plain-language conditions ---------------- */
   function describe(tok) {
@@ -73,6 +95,14 @@
       return (i ? '<span class="or-sep">or</span>' : '') +
         '<span class="pill ' + d.kind + (small ? ' sm' : '') + '" title="' + esc(d.long + '  [' + p + ']') + '">' + esc(d.short) + '</span>';
     }).join('') + '</div>';
+  }
+  function codeCell(str) {
+    if (!str || !str.trim()) return '<span class="none">—</span>';
+    var parts = str.split('/').map(function (s) { return s.trim(); }).filter(Boolean);
+    return '<span class="code-list">' + parts.map(function (p, i) {
+      var d = describe(p);
+      return (i ? '<span class="or-sep-sm">/</span>' : '') + '<code title="' + esc(d.long) + '">' + esc(p) + '</code>';
+    }).join('') + '</span>';
   }
   function ladder(imp, main, supp) {
     return '<div class="ladder">' + [['important', 'Important', imp], ['main', 'Main', main], ['supplementary', 'Supplementary', supp]].map(function (t) {
@@ -118,7 +148,7 @@
   function visibleRows(sec) {
     var st = listState(sec), q = st.q.trim().toLowerCase();
     var rows = SECTIONS[sec].data().filter(function (r) {
-      if (st.confed && r.confederation !== st.confed) return false;
+      if (st.confed && confedParts(r.confederation).indexOf(st.confed) === -1) return false;
       if (q && nameOf(sec, r).toLowerCase().indexOf(q) === -1) return false;
       return true;
     });
@@ -133,22 +163,23 @@
   function pageList(sec, app) {
     var cfg = SECTIONS[sec], st = listState(sec), rows = cfg.data();
     var confeds = {};
-    rows.forEach(function (r) { confeds[r.confederation] = (confeds[r.confederation] || 0) + 1; });
+    rows.forEach(function (r) { confedParts(r.confederation).forEach(function (c) { confeds[c] = (confeds[c] || 0) + 1; }); });
     var confedList = Object.keys(confeds).sort(function (a, b) { return confeds[b] - confeds[a] || a.localeCompare(b); });
 
     var cols = sec === 'domestic'
-      ? [['mvrank', '#', ''], ['name', 'Country', ''], ['teams', 'Clubs', 'r hide-sm'], ['avg', 'Avg MV / club', 'r'], ['total', 'Total MV', 'r hide-sm'], [null, 'Important', 'hide-sm'], [null, 'Main', 'hide-sm']]
-      : [['rank', '#', ''], ['name', 'Competition', ''], [null, 'Important', ''], [null, 'Main', 'hide-sm'], [null, 'Supplementary', 'hide-sm']];
+      ? [['mvrank', '#', ''], ['name', 'Country', ''], ['teams', 'Clubs', 'r hide-sm'], ['avg', 'Avg MV / club', 'r'], ['total', 'Total MV', 'r hide-sm'], [null, 'Important', 'hide-sm'], [null, 'Main', 'hide-sm'], [null, 'Supplementary', 'hide-sm']]
+      : [['rank', '#', ''], ['name', 'Competition', ''], [null, 'Important', 'hide-sm'], [null, 'Main', 'hide-sm'], [null, 'Supplementary', 'hide-sm']];
 
     app.innerHTML =
       '<div class="eyebrow">' + esc(versionLabel(S.version)) + '</div>' +
       '<h1 class="page-title">' + cfg.title + '</h1>' +
       '<p class="page-lede">' + esc(cfg.lede) + '</p>' +
+      (sec === 'domestic' ? '<div class="tier-legend">' + MVTIERS.map(function (t) { return '<span>' + mvTierBadge(t.n) + esc(t.range) + '</span>'; }).join('') + '</div>' : '') +
       '<div class="toolbar"><input type="search" id="q" placeholder="Filter by name…" value="' + esc(st.q) + '">' +
-      '<div class="chips" id="confeds">' +
-      '<button class="chip" data-c="" aria-pressed="' + (!st.confed) + '">All</button>' +
-      confedList.map(function (c) { return '<button class="chip" data-c="' + esc(c) + '" aria-pressed="' + (st.confed === c) + '">' + esc(c) + '</button>'; }).join('') +
-      '</div></div>' +
+      '<div class="confed-select-wrap"><label for="confeds" class="sr-only">Confederation</label><select id="confeds">' +
+      '<option value="">All confederations</option>' +
+      confedList.map(function (c) { return '<option value="' + esc(c) + '"' + (st.confed === c ? ' selected' : '') + '>' + esc(c) + ' (' + confeds[c] + ')</option>'; }).join('') +
+      '</select></div></div>' +
       '<p class="count-line" id="count"></p>' +
       '<div class="table-card"><div class="table-scroll"><table class="data"><thead><tr>' +
       cols.map(function (c) {
@@ -169,31 +200,32 @@
       document.getElementById('tb').innerHTML = vis.map(function (r) {
         var href = '#/' + sec + '/' + slug(nameOf(sec, r));
         if (sec === 'domestic') {
-          var avg = num(r.average_market_value) || 0;
+          var avgN = num(r.average_market_value);
+          var avg = avgN || 0;
           var w = maxAvg ? Math.max(2, Math.sqrt(avg / maxAvg) * 100) : 0;
-          return '<tr data-href="' + href + '">' +
+          var tn = mvTier(avgN);
+          return '<tr data-href="' + href + '" class="mvtier-' + tn + '">' +
             '<td class="rank">' + r._mvRank + '</td>' +
-            '<td class="name"><a href="' + href + '">' + esc(r.country) + '</a><span class="confed">' + esc(r.confederation) + '</span></td>' +
+            '<td class="name"><a href="' + href + '">' + esc(r.country) + '</a><span class="confed">' + esc(r.confederation) + '</span>' + mvTierBadge(tn) + '</td>' +
             '<td class="r num hide-sm">' + esc(r.teams) + '</td>' +
             '<td class="r"><div class="mv-cell"><div class="mv-bar"><span style="width:' + w.toFixed(1) + '%"></span></div><span class="val">' + money(r.average_market_value) + '</span></div></td>' +
             '<td class="r num hide-sm">' + money(r.total_market_value) + '</td>' +
-            '<td class="cond hide-sm">' + pills(r.top_tier_important, true) + '</td>' +
-            '<td class="cond hide-sm">' + pills(r.top_tier_main, true) + '</td></tr>';
+            '<td class="cond hide-sm">' + codeCell(r.top_tier_important) + '</td>' +
+            '<td class="cond hide-sm">' + codeCell(r.top_tier_main) + '</td>' +
+            '<td class="cond hide-sm">' + codeCell(r.top_tier_supplementary) + '</td></tr>';
         }
         return '<tr data-href="' + href + '">' +
           '<td class="rank">' + esc(r.rank) + '</td>' +
           '<td class="name"><a href="' + href + '">' + esc(r.competition) + '</a><span class="confed">' + esc(r.confederation) + '</span></td>' +
-          '<td class="cond">' + pills(r.important, true) + '</td>' +
-          '<td class="cond hide-sm">' + pills(r.main, true) + '</td>' +
-          '<td class="cond hide-sm">' + pills(r.supplementary, true) + '</td></tr>';
-      }).join('') || '<tr><td colspan="7" class="empty-note">Nothing matches that filter.</td></tr>';
+          '<td class="cond hide-sm">' + codeCell(r.important) + '</td>' +
+          '<td class="cond hide-sm">' + codeCell(r.main) + '</td>' +
+          '<td class="cond hide-sm">' + codeCell(r.supplementary) + '</td></tr>';
+      }).join('') || '<tr><td colspan="' + cols.length + '" class="empty-note">Nothing matches that filter.</td></tr>';
     }
 
     document.getElementById('q').addEventListener('input', function (e) { st.q = e.target.value; draw(); });
-    document.getElementById('confeds').addEventListener('click', function (e) {
-      var b = e.target.closest('.chip'); if (!b) return;
-      st.confed = b.getAttribute('data-c');
-      this.querySelectorAll('.chip').forEach(function (c) { c.setAttribute('aria-pressed', c === b); });
+    document.getElementById('confeds').addEventListener('change', function (e) {
+      st.confed = e.target.value;
       draw();
     });
     app.querySelectorAll('th.sortable').forEach(function (th) {
@@ -232,11 +264,13 @@
     if (!r) return notFound(app, 'domestic');
     var comps = [['League · Top tier', 'top_tier'], ['League · Second tier', 'second_tier'], ['Main cup', 'main_cup'], ['League cup', 'league_cup'], ['Super cup', 'super_cup'], ['State championship', 'state_championship']];
     var cards = comps.filter(function (c) { return r[c[1] + '_important'] || r[c[1] + '_main'] || r[c[1] + '_supplementary']; });
+    var tn = mvTier(num(r.average_market_value));
     var html =
       '<div class="crumbs"><a href="#/domestic">← Domestic</a>' + pager('domestic', r.country) + '</div>' +
       '<div class="detail-hero"><div><div class="eyebrow">' + esc(r.confederation) + ' · ' + esc(versionLabel(S.version)) + '</div><h1 class="page-title">' + esc(r.country) + '</h1></div></div>' +
       '<div class="tiles">' +
       tile('MV rank', '#' + r._mvRank, 'of ' + S.domestic.length) +
+      tile('Tier', '<span class="mvtier-t' + tn + '">T' + tn + '</span>', MVTIERS[tn - 1].range) +
       tile('Top-tier clubs', esc(r.teams)) +
       tile('Avg MV / club', money(r.average_market_value)) +
       tile('Total MV', money(r.total_market_value)) +
@@ -263,17 +297,9 @@
     var html =
       '<div class="crumbs"><a href="#/' + sec + '">← ' + SECTIONS[sec].title + '</a>' + pager(sec, r.competition) + '</div>' +
       '<div class="detail-hero"><div><div class="eyebrow">' + esc(r.confederation) + ' · ' + esc(versionLabel(S.version)) + '</div><h1 class="page-title">' + esc(r.competition) + '</h1></div></div>';
-    var pts = [];
-    if (sec === 'continental') {
-      pts = S.contHist.filter(function (h) { return h.competition === r.competition; }).map(function (h) { return { x: h.snapshot, y: num(h.average_market_value) }; });
-      pts.sort(function (a, b) { return a.x < b.x ? -1 : 1; });
-    }
-    html += '<div class="tiles">' + tile('Priority', '#' + esc(r.rank), 'of ' + list.length) + tile('Confederation', esc(r.confederation)) +
-      (pts.length ? tile('Avg MV / club', money(pts[pts.length - 1].y), pts[pts.length - 1].x) : '') + '</div>';
+    html += '<div class="tiles">' + tile('Priority', '#' + esc(r.rank), 'of ' + list.length) + tile('Confederation', esc(r.confederation)) + '</div>';
     html += '<div class="comp-grid"><div class="comp-card full-span"><h2>Conditions</h2>' + ladder(r.important, r.main, r.supplementary) + '</div>' + cutoffPanel(sec) + '</div>';
-    if (pts.length) html += chartCard('Average club market value', 'Per season snapshot', pts);
     app.innerHTML = html;
-    bindChart(app);
   }
 
   function notFound(app, sec) {
@@ -385,9 +411,16 @@
   }
   function bindSearch() {
     var inp = document.getElementById('hs'), res = document.getElementById('hr'), hits = [], kb = 0;
+    function position() {
+      var b = inp.getBoundingClientRect();
+      res.style.left = b.left + 'px';
+      res.style.top = (b.bottom + 8) + 'px';
+      res.style.width = b.width + 'px';
+    }
     function render() {
       var q = inp.value.trim().toLowerCase();
       if (!q) { res.classList.remove('open'); return; }
+      position();
       hits = S.index.filter(function (e) { return e.label.toLowerCase().indexOf(q) !== -1; })
         .sort(function (a, b) { return (a.label.toLowerCase().indexOf(q) === 0 ? 0 : 1) - (b.label.toLowerCase().indexOf(q) === 0 ? 0 : 1); }).slice(0, 12);
       kb = 0;
@@ -405,6 +438,8 @@
       } else if (e.key === 'Enter') { location.hash = hits[kb].href; }
     });
     document.addEventListener('click', function (e) { if (!e.target.closest('.search')) res.classList.remove('open'); });
+    window.addEventListener('resize', function () { if (res.classList.contains('open')) position(); });
+    window.addEventListener('scroll', function () { if (res.classList.contains('open')) position(); }, true);
   }
 
   /* ---------------- guide ---------------- */
@@ -483,10 +518,9 @@
   function boot() {
     Promise.all([
       get('data/versions.json', true), get('data/glossary.json', true),
-      csv('data/history/domestic_market_value.csv').catch(function () { return []; }),
-      csv('data/history/continental_market_value.csv').catch(function () { return []; })
+      csv('data/history/domestic_market_value.csv').catch(function () { return []; })
     ]).then(function (r) {
-      S.versions = r[0]; S.g = r[1]; S.domHist = r[2]; S.contHist = r[3];
+      S.versions = r[0]; S.g = r[1]; S.domHist = r[2];
       var sel = document.getElementById('version-select');
       sel.innerHTML = S.versions.map(function (v) { return '<option value="' + v.id + '">' + esc(v.label) + '</option>'; }).join('');
       var cur = S.versions.find(function (v) { return v.status === 'current'; }) || S.versions[S.versions.length - 1];

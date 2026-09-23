@@ -19,7 +19,7 @@ data/
     international.csv    one row per international competition
   history/
     domestic_market_value.csv      market-value-only history reconstructed from older files
-    continental_market_value.csv   (2024–2025 snapshots; no per-round criteria, just MV over time)
+                                    (2024–2025 snapshots; no per-round criteria, just MV over time)
 ```
 
 ## Adding a new snapshot (e.g. September 2026)
@@ -49,9 +49,8 @@ This is a static site — no build step. Push this folder to a GitHub repo and e
 ## Notes on the data
 
 - The March 2026 criteria file is the first snapshot with full Important/Main/Supplementary rules;
-  `data/history/` only carries market-value figures reconstructed from differently-formatted older
-  files (2024–2025), used for the small trend charts on country/competition pages. There's no
-  historical criteria data before March 2026.
-- Competition names in the continental history were aligned to the current names (e.g. Copa Libertadores →
-  CONMEBOL Libertadores, AFC Cup → AFC Champions League Two) so their trend charts line up.
+  `data/history/domestic_market_value.csv` only carries market-value figures reconstructed from
+  differently-formatted older files (2024–2025), used for the small trend chart on country pages.
+  There's no historical criteria data before March 2026. Market-value history is no longer tracked
+  for continental or international competitions.
 - The global cutoffs are shown as a separate route in ("Also counts if"), not tied to a specific tier.
